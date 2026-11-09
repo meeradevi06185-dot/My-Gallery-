@@ -6,12 +6,14 @@ on:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    env:
+      PIP_BREAK_SYSTEM_PACKAGES: "1"
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -22,21 +24,53 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Accept Android SDK Licenses & Install Build Tools
+      - name: Install All System and Python Dependencies
         run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;33.0.2" "platforms;android-33" "platform-tools"
+          sudo rm -f /usr/lib/python3.*/EXTERNALLY-MANAGED
+          sudo apt-get update
+          sudo apt-get install -y \
+            git zip unzip \
+            autoconf automake libtool libtool-bin libltdl-dev \
+            pkg-config zlib1g-dev libncurses-dev \
+            cmake libffi-dev libssl-dev \
+            patch lbzip2 bzip2 \
+            build-essential ccache \
+            bison flex gettext
+          pip install --upgrade pip setuptools wheel
+          pip install "cython==0.29.36" buildozer appdirs "colorama>=0.3.3" jinja2 "sh>=1.10,<2.0" meson ninja build toml packaging virtualenv
 
-      - name: Install System Dependencies
+      - name: Auto-Fix buildozer.spec Automatically
         run: |
-          sudo apt update
-          sudo apt install -y git zip unzip autoconf libtool pkg-config zlib1g-dev libncurses-dev cmake libffi-dev libssl-dev
-          pip install --upgrade pip
-          pip install buildozer cython virtualenv
+          python3 - << 'EOF'
+          import pathlib, re, subprocess
 
-      - name: Build with Buildozer
+          spec_path = pathlib.Path("buildozer.spec")
+          if not spec_path.exists():
+              subprocess.run(["buildozer", "init"], check=True)
+
+          text = spec_path.read_text(encoding="utf-8", errors="ignore")
+
+          def set_key(content, section, key, value):
+              pattern = rf"^[#\s]*{re.escape(key)}\s*=.*$\n?"
+              content = re.sub(pattern, "", content, flags=re.MULTILINE)
+              return content.replace(f"[{section}]", f"[{section}]\n{key} = {value}", 1)
+
+          text = set_key(text, "app", "android.api", "33")
+          text = set_key(text, "app", "android.minapi", "21")
+          text = set_key(text, "app", "android.ndk", "25b")
+          text = set_key(text, "app", "android.build_tools_version", "33.0.2")
+          text = set_key(text, "app", "android.accept_sdk_license", "True")
+          text = set_key(text, "app", "android.archs", "arm64-v8a")
+          text = set_key(text, "app", "p4a.branch", "master")
+          text = set_key(text, "buildozer", "log_level", "2")
+
+          spec_path.write_text(text, encoding="utf-8")
+          print("buildozer.spec successfully auto-configured!")
+          EOF
+
+      - name: Build APK with Buildozer
         run: |
-          yes | buildozer android debug
+          (yes || true) | buildozer android debug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
