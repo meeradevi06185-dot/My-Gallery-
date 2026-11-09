@@ -22,13 +22,10 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK Tools
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android Build Tools
+      - name: Accept Android SDK Licenses & Install Build Tools
         run: |
-          sdkmanager --install "build-tools;33.0.2" "platforms;android-33" "platform-tools"
-          yes | sdkmanager --licenses
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;33.0.2" "platforms;android-33" "platform-tools"
 
       - name: Install System Dependencies
         run: |
